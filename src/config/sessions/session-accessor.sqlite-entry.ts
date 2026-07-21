@@ -222,8 +222,8 @@ export function listSqliteSessionEntriesSlim(
     database.db,
     db
       .selectFrom("session_entries")
-      .select((eb) => [
-        eb.ref("session_key"),
+      .select(["session_key", "session_id", "updated_at"])
+      .select((eb) =>
         eb
           .fn<string>("json_remove", [
             eb.ref("entry_json"),
@@ -231,9 +231,7 @@ export function listSqliteSessionEntriesSlim(
             eb.val("$.skillsSnapshot"),
           ])
           .as("entry_json"),
-        eb.ref("session_id"),
-        eb.ref("updated_at"),
-      ])
+      )
       .orderBy("session_key", "asc"),
   ).rows;
   const entries = rows
