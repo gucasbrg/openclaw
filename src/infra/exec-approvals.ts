@@ -421,7 +421,31 @@ export function resolveExecApprovalsTranscriptPath(): string {
     : `${DEFAULT_EXEC_APPROVALS_STATE_DIR}/${EXEC_APPROVALS_FILE}`;
 }
 
-function createFailClosedExecApprovalsFallback(): ExecApprovalsFile {
+let execApprovalsFailClosedWarnedAtMs = 0;
+
+function warnExecApprovalsFailClosed(cause: unknown): void {
+  // Rate-limit to once a minute: the fallback is hit on every exec while the
+  // store stays unreadable, and the point is one actionable line, not a flood.
+  const nowMs = Date.now();
+  if (nowMs - execApprovalsFailClosedWarnedAtMs < 60_000) {
+    return;
+  }
+  execApprovalsFailClosedWarnedAtMs = nowMs;
+  let target = "";
+  try {
+    const filePath = resolveExecApprovalsPath();
+    target = ` store=${filePath} (also check its .lock sidecar for a dead holder)`;
+  } catch {
+    // Path resolution may itself be the failing step; still emit the warning.
+  }
+  const reason = cause instanceof Error ? cause.message : cause === undefined ? "unknown cause" : String(cause);
+  console.error(
+    `[exec-approvals] approvals store unreadable; failing closed (every exec now denies with security=deny): ${reason}${target}`,
+  );
+}
+
+function createFailClosedExecApprovalsFallback(cause?: unknown): ExecApprovalsFile {
+  warnExecApprovalsFailClosed(cause);
   return normalizeExecApprovals({
     version: 1,
     defaults: {
@@ -500,16 +524,18 @@ function isValidPersistedExecApprovals(value: unknown): value is ExecApprovalsFi
 }
 
 function parsePersistedExecApprovals(raw: string): ExecApprovalsFile {
+  let cause: unknown = "persisted exec-approvals content failed validation";
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (isValidPersistedExecApprovals(parsed)) {
       return normalizeExecApprovals(parsed);
     }
-  } catch {
+  } catch (err) {
     // A partial Windows fallback write is existing state, not a missing policy.
+    cause = err;
   }
   // Never let malformed persisted state inherit permissive product defaults.
-  return createFailClosedExecApprovalsFallback();
+  return createFailClosedExecApprovalsFallback(cause);
 }
 
 function normalizeAllowlistPattern(value: string | undefined): string | null {
@@ -1062,18 +1088,18 @@ function loadExecApprovalsUnlocked(): ExecApprovalsFile {
   const filePath = resolveExecApprovalsPath();
   try {
     return readExecApprovalsSnapshotFromPath(filePath).file;
-  } catch {
-    return createFailClosedExecApprovalsFallback();
+  } catch (err) {
+    return createFailClosedExecApprovalsFallback(err);
   }
 }
 
 export function loadExecApprovals(): ExecApprovalsFile {
   try {
     return withExecApprovalsReadLockSync(resolveExecApprovalsPath(), loadExecApprovalsUnlocked);
-  } catch {
+  } catch (err) {
     // A busy, malformed, or unreadable approvals store must never restore the
     // permissive defaults while another process is revoking access.
-    return createFailClosedExecApprovalsFallback();
+    return createFailClosedExecApprovalsFallback(err);
   }
 }
 
@@ -1082,10 +1108,10 @@ export async function loadExecApprovalsAsync(): Promise<ExecApprovalsFile> {
     return await withExecApprovalsReadLock(resolveExecApprovalsPath(), async () =>
       loadExecApprovalsUnlocked(),
     );
-  } catch {
+  } catch (err) {
     // Match the synchronous reader's fail-closed contract while allowing
     // same-process async writers to finish instead of rejecting valid state.
-    return createFailClosedExecApprovalsFallback();
+    return createFailClosedExecApprovalsFallback(err);
   }
 }
 
@@ -1520,7 +1546,7 @@ function readExecApprovalsForNoPersistenceUnlocked(filePath: string): ExecApprov
     if (err instanceof UnsafeExecApprovalsPathError) {
       throw err;
     }
-    return createFailClosedExecApprovalsFallback();
+    return createFailClosedExecApprovalsFallback(err);
   }
 }
 
