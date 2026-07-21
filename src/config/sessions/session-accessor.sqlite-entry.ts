@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import { sql } from "kysely";
 import type { MsgContext } from "../../auto-reply/templating.js";
 import {
   executeSqliteQuerySync,
@@ -185,10 +184,10 @@ function readSlimSessionListFingerprint(database: { db: DatabaseSync }): string 
     database.db,
     db
       .selectFrom("session_entries")
-      .select([
-        sql<number>`count(*)`.as("row_count"),
-        sql<number>`coalesce(max(updated_at), 0)`.as("max_updated_at"),
-        sql<number>`coalesce(sum(updated_at), 0)`.as("sum_updated_at"),
+      .select((eb) => [
+        eb.fn.countAll().as("row_count"),
+        eb.fn.max("updated_at").as("max_updated_at"),
+        eb.fn.sum("updated_at").as("sum_updated_at"),
       ]),
   );
   return `${row?.row_count ?? 0}:${row?.max_updated_at ?? 0}:${row?.sum_updated_at ?? 0}`;
@@ -223,13 +222,17 @@ export function listSqliteSessionEntriesSlim(
     database.db,
     db
       .selectFrom("session_entries")
-      .select([
-        "session_key",
-        sql<string>`json_remove(entry_json, '$.systemPromptReport', '$.skillsSnapshot')`.as(
-          "entry_json",
-        ),
-        "session_id",
-        "updated_at",
+      .select((eb) => [
+        eb.ref("session_key"),
+        eb
+          .fn<string>("json_remove", [
+            eb.ref("entry_json"),
+            eb.val("$.systemPromptReport"),
+            eb.val("$.skillsSnapshot"),
+          ])
+          .as("entry_json"),
+        eb.ref("session_id"),
+        eb.ref("updated_at"),
       ])
       .orderBy("session_key", "asc"),
   ).rows;
