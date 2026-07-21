@@ -438,7 +438,18 @@ function warnExecApprovalsFailClosed(cause: unknown): void {
   } catch {
     // Path resolution may itself be the failing step; still emit the warning.
   }
-  const reason = cause instanceof Error ? cause.message : cause === undefined ? "unknown cause" : String(cause);
+  let reason = "unknown cause";
+  if (cause instanceof Error) {
+    reason = cause.message;
+  } else if (typeof cause === "string") {
+    reason = cause;
+  } else if (cause !== undefined) {
+    try {
+      reason = JSON.stringify(cause) ?? reason;
+    } catch {
+      // Keep the generic reason when the cause cannot be stringified.
+    }
+  }
   console.error(
     `[exec-approvals] approvals store unreadable; failing closed (every exec now denies with security=deny): ${reason}${target}`,
   );
