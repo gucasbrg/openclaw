@@ -1,4 +1,5 @@
 import type { SessionCatalogPullRequestSummary } from "../../../packages/gateway-protocol/src/schema/sessions-catalog.js";
+import type { SessionObserverDigest } from "../../../packages/gateway-protocol/src/schema/sessions.js";
 import type { SessionAgentAttentionIconId } from "../../../packages/gateway-protocol/src/session-icon.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { SessionRunStatus } from "../api/types.ts";
@@ -57,6 +58,7 @@ export type SidebarRecentSession = {
   active: boolean;
   visuallyActive: boolean;
   hasActiveRun: boolean;
+  activeRunIds?: readonly string[];
   modelSelectionLocked: boolean;
   kind?: string;
   pinned: boolean;
@@ -74,8 +76,13 @@ export type SidebarRecentSession = {
   hasAutomation: boolean;
   pullRequest?: SessionCatalogPullRequestSummary;
   unread: boolean;
+  lastReadAt?: number;
   attention: SidebarSessionAttention;
   agentStatusNote?: string;
+  observerDigest?: Pick<
+    SessionObserverDigest,
+    "runId" | "headline" | "health" | "updatedAt" | "revision"
+  >;
   spawnedBy?: string;
   status?: SessionRunStatus;
   startedAt?: number;
@@ -91,6 +98,28 @@ export type SidebarRecentSession = {
   runningChildCount: number;
   failedChildCount: number;
 };
+
+export const enum RowVisibilityReason {
+  Any,
+  ActiveRun,
+  Attention,
+}
+
+export function rowDemandsVisibility(
+  row: SidebarRecentSession,
+  reason: RowVisibilityReason = RowVisibilityReason.Any,
+) {
+  return reason === RowVisibilityReason.ActiveRun
+    ? row.hasActiveRun
+    : reason === RowVisibilityReason.Attention
+      ? row.attention.kind !== "none"
+      : row.visuallyActive ||
+        row.containsActiveDescendant ||
+        row.hasActiveRun ||
+        row.status === "running" ||
+        row.runningChildCount > 0 ||
+        row.attention.kind !== "none";
+}
 
 export type SidebarSessionMenuState = {
   session: SidebarRecentSession;
